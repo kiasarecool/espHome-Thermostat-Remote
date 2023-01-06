@@ -1,0 +1,198 @@
+substitutions:
+  esp_name: "Target Control"
+
+esphome:
+  name: "esp32-dev-board"
+
+esp32:
+  board: esp32doit-devkit-v1
+
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+
+ota:
+
+
+wifi:
+  ssid: "Plant Factory ATT "
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "${esp_name}"
+    password: ""
+
+captive_portal:
+
+globals: 
+  - id: wifi_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"
+time:
+- platform: homeassistant
+  id: esptime
+interval: 
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: |-
+                id(wifi_connection) = true;
+          else:
+            - lambda: |-
+                id(wifi_connection) = false;
+
+switch:
+  - platform: template
+    name: "${esp_name} OLED"
+    optimistic: true
+    turn_on_action:
+      - lambda: id(oled).turn_on();
+    turn_off_action:
+      - lambda: id(oled).turn_off();
+binary_sensor:
+  - platform: gpio
+    name: 'LCD click'
+    id: 'click'
+    pin: 25
+    filters:
+      - delayed_on: 10ms
+      - delayed_off: 10ms
+    on_press: 
+      - display.page.show_next: oled  
+    on_double_click:
+      - homeassistant.service:
+          service: climate.set_hvac_mode
+          data_template:
+            entity_id: climate.bay_5_thermostat
+            hvac_mode: "OFF"
+  
+
+sensor:
+  - platform: rotary_encoder
+    name: "${esp_name} Rotary Encoder"
+    id: thermo_encoder
+    pin_a: 35
+    pin_b: 34
+#    resolution: 2
+    filters:
+    - lambda: return x * 0.5;
+    on_value:      
+      then:
+      - delay: 0.2s
+      - homeassistant.service:
+          service: climate.set_temperature
+          data_template:
+            
+            target_temp_low: !lambda "return id(thermo_encoder).state;"
+            target_temp_high: !lambda "return id(thermo_encoder).state + 2;"
+            entity_id: climate.bay_5_thermostat
+      - homeassistant.service:
+          service: climate.set_temperature
+          data_template:
+            
+            target_temp_low: !lambda "return id(thermo_encoder).state;"
+            target_temp_high: !lambda "return id(thermo_encoder).state + 2;"
+            entity_id: climate.bay_5_thermostat
+  - platform: homeassistant
+    entity_id: sensor.bay_5_target_temperature_high
+    id: target_high
+#    on_value:
+#    - sensor.rotary_encoder.set_value:
+#        id: thermo_encoder
+#        value: !lambda "return id(target_high).state * 2;"
+  - platform: homeassistant
+    id: target_low
+    entity_id: sensor.bay_5_target_temperature_low
+    internal: true
+    on_value:
+    - sensor.rotary_encoder.set_value:
+       id: thermo_encoder
+       value: !lambda "return id(target_low).state * 2;"
+  - platform: homeassistant
+    entity_id: sensor.bay_5_humidity
+    id: humid_5
+    internal: true
+  - platform: homeassistant
+    entity_id: sensor.bay_5_temperature
+    id: temp_5
+    internal: true
+
+text_sensor:
+  - platform: homeassistant
+    id: thermo_txt
+    entity_id: climate.bay_5_thermostat
+font:
+  - file: 'fonts/mdi.ttf'
+    id: mdi11
+    size: 26
+    glyphs:
+      - "\U000F1B20"
+      - "\U000F1B1F"
+      - "\U000F07F4"
+      - "\U000F083A"
+      - "\U000F1987"
+      - "\U000F073A"
+      - "\U000F1A62"
+      - "\U000F1798"
+      - "\U000F1A61"
+      - "\U000F1797"
+  - file: 'arial.ttf'
+    id: font1
+    size: 11
+  - file: 'BebasNeue-Regular.ttf'
+    id: font2
+    size: 36
+  - file: 'arial.ttf'
+    id: font3
+    size: 16
+  - file: "fonts/mdi.ttf"
+    id: mdi2
+    size: 40
+    glyphs: [
+      "\U000F05A9", #wifi
+      "\U000F05AA", #no wifi
+      ]
+i2c:
+  sda: 33
+  scl: 32
+display:
+  - platform: ssd1306_i2c
+    model: "SH1106 128x64"
+    id: oled
+    address: 0x3C
+    brightness: 100%
+    rotation: 0
+    pages:
+      - id: page1
+        lambda: |-
+
+          it.strftime(85, 1, id(font3), "%H:%M", id(esptime).now());
+          it.printf(1, 1, id(font1), "Set:%.0f Now:%.0f°", id(thermo_encoder).state + 1, id(temp_5).state);
+          it.line(0, 19, 128, 19);
+          it.line(83, 19, 83, 0);
+          it.line(64, 19, 64, 64);
+          it.rectangle(0, 0, 128, 64);
+          it.printf(1, 50, id(font2), TextAlign::BASELINE_LEFT, "%.1f°", id(target_low).state);
+          it.printf(7, 50, id(font1), "KICK ON");
+          it.printf(65, 18, id(font2), "%.1f°", id(target_high).state);
+          it.printf(70, 50, id(font1), "CUT OFF");
+      - id: page2
+        lambda: |-  
+          it.strftime(85, 0, id(font3), "%H:%M", id(esptime).now());
+          it.printf(85, 16, id(mdi2), "%s", id(wifi_connection) ? "\U000F05A9" : "\U000F05AA");
+          it.printf(1, 0, id(font3), "%.1f°F %.0f%% ", id(temp_5).state, id(humid_5).state);
+          it.print(9, 14, id(font3), "5th Bay");
+          it.line(0, 33, 84, 33);
+          it.line(84, 64, 84, 0);
+          it.line(84, 18, 128, 18);
+          it.rectangle(0, 0, 128, 64);
+          it.printf(3, 35, id(font1), "MODE: %s", id(thermo_txt).state.c_str());
+          it.printf(3, 45, id(font1), "Target: %.1f", id(thermo_encoder).state);
