@@ -1,0 +1,346 @@
+## SET UP
+substitutions:
+  #GENRAL
+  esphome_node_name: "esp32-feather-s2"
+  board_model: "lolin_s2_mini"
+  framework_type: "arduino"
+  ap_pass: ""
+  esp_name: "OLED Knob"
+  time_id: "esptime"
+  wifi:
+  wifi_name: "!secret wifi_ssid"
+  wifi_pass: "!secret wifi_password"
+  hide_inputs_in_HA: "true"
+  #KEYS
+  ota_pass: ""
+  encryption_key: ""
+  #WIFI SENSOR
+  check_interval: "30s"
+  #DISPLAY
+  display_platform: "ssd1351_spi"
+  display_model: "SSD1351 128x128"
+  spi_clk: "10"
+  spi_mosi: "11"
+  pin_reset: "14"
+  pin_cs: "12"
+  pin_dc: "13"
+  #ROTARY ENCODER
+  rotaty_clk: "7"
+  rotaty_a: "8"
+  rotaty_b: "9" 
+  temp_step: "1" # input/2 = step size
+
+  
+  #SENSORS / ENTITIES
+  light_entity: light.closet_light
+  mdeia_volume_id: "volume"
+  media_player: "media_player.samsung_8_series_55"
+  climate_entity: "climate.thermostat"
+  temp_sensor_1: "sensor.average_indoor_temperature"
+  temp_sensor_2: "sensor.bedroom_temperature"
+  #DISPLAY LABELS
+  climate_entity_friendly_name: "Thermostat"
+  sensor_1_display_label: "Average"
+  sensor_2_display_label: "Bedroom"
+  target_temp_display_label: "Setpoint"
+  current_temp_display_label: "Current"
+# DONT NEED TO CHANGE BUT CAN#
+  thermostat_target_temp_id: "thermo_target"
+  climate_txt_sensor_id: "thermo_txt"
+  climate_entity_id: "thermo_current_temp"
+  sensor_1_id: "avg"
+  sensor_2_id: "bedroom_temp"
+  thrmostat_current_temp_id: "thermo_current_temp"
+  rotary_id: "knob"
+  rotary_click_id: "click"
+  display_id: "oled"
+#######################################################
+#                   end user inputs                   #
+#######################################################
+  
+esphome:
+  name: ${esphome_node_name}
+## NAME YOUR BOARD TYPE
+esp32:
+  board: ${board_model}
+  framework:
+    type: ${framework_type}
+## DONT REMOVE
+logger:
+## DONT REMOVE
+api:
+  encryption:
+    key: "${encryption_key}"
+## DONT REMOVE
+ota:
+  password: "${ota_pass}"
+wifi:
+  ssid: ${wifi_name}
+  password: ${wifi_pass}
+  ap:
+    ssid: "${esp_name} Hotspot"
+    password: "${ap_pass}"
+## WIFI CONNECTION CHECK${display_id}
+globals: 
+  - id: wifi_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"
+## WIFI CONNECTION CHECK TIMER
+interval: 
+  - interval: ${check_interval}
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: |-
+                id(wifi_connection) = true;
+          else:
+            - lambda: |-
+                id(wifi_connection) = false;
+## TIME
+time:
+  - platform: homeassistant
+    id: ${time_id}
+## ROTATY CLICK
+binary_sensor:
+  - platform: gpio
+    name: '${esp_name} Click'
+    id: ${rotary_click_id}
+    pin: ${rotaty_clk}
+    on_press: 
+      - display.page.show_next: ${display_id}
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page1
+          then:
+            - sensor.rotary_encoder.set_value:
+               id: ${rotary_id}
+               value: !lambda "return id(${thermostat_target_temp_id}).state * 2;"
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page2
+          then:
+            - sensor.rotary_encoder.set_value:
+               id: ${rotary_id}
+               value: !lambda "return id(${mdeia_volume_id}).state * 100;"            
+      - component.update: ${display_id}
+    internal: ${hide_inputs_in_HA}
+##SCREEN ON / OFF HA SWITCH
+switch:
+  - platform: template
+    name: "${esp_name} Display"
+    optimistic: true
+    turn_on_action:
+      - lambda: id(${display_id}).turn_on();
+    turn_off_action:
+      - lambda: id(${display_id}).turn_off();
+## ROTARY ENCODER KNOB
+sensor:
+  - platform: rotary_encoder
+    name: "${esp_name} Rotary Encoder"
+    id: ${rotary_id}
+    pin_a: ${rotaty_a}
+    pin_b: ${rotaty_b}
+    resolution: 1
+    publish_initial_value: true #prevent NAN on boot
+    filters:
+    - debounce: 0.1s
+    on_value:
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page1
+          then:                      
+            - delay: 0.5s
+            - homeassistant.service: 
+                service: climate.set_temperature
+                data_template:
+                  temperature: !lambda "return id(${rotary_id}).state / 2;"
+                  entity_id: ${climate_entity} 
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page2
+          then:        
+            - delay: 0.05s
+            - homeassistant.service:
+                service: media_player.volume_set
+                data_template:                 
+                  volume_level:  !lambda "return id(${rotary_id}).state / 100;"
+                  entity_id: ${media_player}
+#MEDIA PLAYER
+  - platform: homeassistant
+    id: ${mdeia_volume_id}
+    entity_id: ${media_player}
+    attribute: volume_level
+    internal: true
+    on_value:
+    - delay: 0.2s
+    - if:
+        condition:
+           display.is_displaying_page:
+            id: ${display_id}
+            page_id: page2
+        then:
+          - sensor.rotary_encoder.set_value:
+             id: ${rotary_id}
+             value: !lambda "return id(${mdeia_volume_id}).state * 100;"  
+## LOCAL TEMPERATURES        
+  - platform: homeassistant
+    entity_id: ${temp_sensor_2}
+    id: ${sensor_2_id}
+  - platform: homeassistant
+    id: ${thrmostat_current_temp_id}
+    entity_id: ${climate_entity}
+    attribute: current_temperature
+## THERMOSTAT TARGET TEMPERATURE
+  - platform: homeassistant
+    id: ${thermostat_target_temp_id}
+    entity_id: ${climate_entity}
+    attribute: temperature
+## SET ENCODER TEMP TARGET VALUE ON PAGE 1###
+    on_value:
+    - delay: 0.2s
+    - if:
+        condition:
+          display.is_displaying_page:
+            id: ${display_id}
+            page_id: page1
+        then:
+          - sensor.rotary_encoder.set_value:
+             id: ${rotary_id}
+             value: !lambda "return id(${thermostat_target_temp_id}).state * 2;"
+  - platform: homeassistant
+    id: brightness_id
+    entity_id: ${light_entity}
+    attribute: brightness_pct
+###THERMOSTAT TXT SENSOR FOR ACTION LABEL
+text_sensor:
+  - platform: homeassistant
+    id: ${climate_txt_sensor_id}
+    entity_id: ${climate_entity}
+    attribute: hvac_action
+##FONT FILES
+font:
+  - file: 'fonts/arial.ttf'
+    id: font1
+    size: 18
+  - file: "fonts/mdi.ttf"
+    id: mdi3
+    size: 18
+    glyphs: [
+      "\U000F0036", #apple finder logo (SEARCH MDI DOWNLOAD AND CLICK CHEATSHEET TO USE OTHER ICONS)
+      "\U000F0035", #apple Logo     (LEAVE THE \U000 AND CHANGE THE REST, THEN CHANGE CODE IN DISPLAY)
+      "\U000F0A21", #windows 98 flag
+      "\U000F05AA", #wifi off
+      "\U000F05A9", #wifi
+      ]
+  - file: 'fonts/arial.ttf'
+    id: font0
+    size: 11
+  - file: 'BebasNeue-Regular.ttf'
+    id: font2
+    size: 30
+  - file: 'BebasNeue-Regular.ttf'
+    id: font4
+    size: 60
+  - file: 'fonts/arial.ttf'
+    id: font3
+    size: 14
+##DISLAY COLORS
+color:
+  - id: red
+    red: 100%
+    green: 0%
+    blue: 0%
+    white: 0%
+  - id: blue
+    red: 0%
+    green: 0%
+    blue: 100%
+    white: 0%
+  - id: blue_green
+    red: 0%
+    green: 50%
+    blue: 50%
+    white: 5%
+  - id: green
+    red: 0%
+    green: 100%
+    blue: 0%
+    white: 0%
+  - id: violet
+    red: 50%
+    green: 0%
+    blue: 50%
+    white: 5%
+## 1.5" RGB OLED 128*128
+spi:
+  clk_pin: ${spi_clk}
+  mosi_pin: ${spi_mosi}
+#DISPLAY 
+display:
+  - platform: ${display_platform}
+    model: "${display_model}"
+    id: ${display_id}
+    reset_pin: ${pin_reset}
+    cs_pin: ${pin_cs}
+    dc_pin: ${pin_dc}
+    pages:
+      - id: page1
+        lambda: |-
+          it.line(0, 15, 128, 15, id(violet));
+          it.line(75, 15, 75, 0, id(violet));
+          it.line(64, 15, 64, 95, id(violet));
+          it.line(0, 95, 128, 95, id(violet));
+          
+          it.rectangle(0, 0, 128, 55, id(violet));
+          it.rectangle(0, 54, 128, 74, id(violet));
+          
+          it.strftime(86, 0, id(font3), id(violet), "%H:%M", id(${time_id}).now());
+          
+          it.printf(2, 2, id(font0), id(blue), "HVAC: %s", id(${climate_txt_sensor_id}).state.c_str());
+          
+
+          if (id(${thrmostat_current_temp_id}).has_state()) {
+          it.printf(2, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thrmostat_current_temp_id}).state);
+          } else {
+          it.print(8, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          it.printf(7, 40, id(font0), id(blue_green), "${current_temp_display_label}");
+
+
+          if (id(${thermostat_target_temp_id}).has_state()) {
+          it.printf(67, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thermostat_target_temp_id}).state);
+          } else {
+          it.print(75, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          it.printf(73, 40, id(font0), id(blue_green), "${target_temp_display_label}");
+
+          
+          it.printf(67, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${rotary_id}).state / 2);
+          it.print(81, 80, id(font0), id(blue_green), "Input");
+
+
+          it.printf(109, 109, id(mdi3), id(violet), "%s", id(wifi_connection) ? "\U000F05A9" : "\U000F05AA");
+          it.line(109, 109, 109, 128, id(violet));
+          it.line(109, 109, 128, 109, id(violet));
+
+          it.printf(4, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${sensor_2_id}).state);
+          it.print(5, 80, id(font0), id(blue_green), "${sensor_2_display_label}");
+      - id: page2
+        lambda: |-
+          it.rectangle(0, 0, 128, 128, id(violet));
+          it.filled_rectangle(14, 3, id(${rotary_id}).state, 18, id(green));
+          it.rectangle(13, 2, 102, 20, id(blue));
+          it.print(30, 25, id(font3), id(green), "Bedroom TV");
+          it.print(45, 40, id(font3), id(green), "Volume");
+          it.printf(38, 50, id(font4), "%.0f", id(${rotary_id}).state);
