@@ -3,8 +3,9 @@ Thermostat target and TV Volume control,
 form an esp device with a display using a rotary encoder with click.
 
 Diffrent pages trigger diffrent actions from the rotary encoder,
-inspidered by the idea of the lcd menu described on esphome.io,
-but aparently that wants a 2 line display, and all mine were at least 64 :/
+inspidered by the idea of the lcd menu described on esphome.io;
+but aparently that wants a 2 line display... and all mine were at least 64 :/
+
 
 Both of the yaml's are for 128x128 color screens 
 The one for Bang Bang is set up for a spi LCD,
@@ -12,6 +13,7 @@ has 3 pages and controls 2 seperate thermostats + 1 volume entity,
 the other has 2 pages and controls 1 thermostat + 1 volume entity and is set up for a RGB Oled screen
 *I really perfer the rgb oled, much better picture,a crazy full 180 view angle and it was just easier to set up. 
 **There is a 128x64 non color oled display version is in progress.
+
 
 This "remote" is to control 1 regular thermostat (mine is eco bee)
 or 2 seperate bang bang style thermostats [or climate groups] both configs are provided
