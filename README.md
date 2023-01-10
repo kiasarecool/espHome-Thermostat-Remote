@@ -1,12 +1,11 @@
 # espHome-Thermostat-Remote
 espHome climate entity control form an esp device with display
 
-hardware:
-Display: 128x64 1 color oled,
-5 momentary buttons OR 1 5 way button,
-esp32 board OR esp8266 (8266 requires yaml edits),
-female to female dupont wires,
-(no box designed yet),
+set up to control 1 regular thermostat (mine is eco bee) 
+or 2 seperate  bang bang style thermostats
+and one media player entity's volume level 
+uses one rotary encoder, an esp32, display and a 3d printed box 
+
 
 
 
