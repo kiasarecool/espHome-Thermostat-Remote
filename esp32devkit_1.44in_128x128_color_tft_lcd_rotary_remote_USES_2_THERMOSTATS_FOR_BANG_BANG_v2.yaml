@@ -1,0 +1,476 @@
+## SET UP
+substitutions:
+  #GENRAL
+  esphome_node_name: "lcd-menu"
+  board_model: "nodemcu-32s"
+  framework_type: "arduino"
+  ap_pass: ""
+  esp_name: "espHome Remote"
+  time_id: "esptime"
+  #KEYS
+  ota_pass: ""
+  encryption_key: ""
+  wifi_name: "" # add double quotes if not using !secret wifi_ssid/passowrd 
+  wifi_pass: "" # wifi_name: ""Your Wifi""
+  wifi_name_2: "" # wifi_pass: ""Your Wifi Password""
+  wifi_pass_2: ""
+  #WIFI SENSOR
+  check_interval: "30s"
+  #DISPLAY
+  display_platform: "st7735"
+  display_model: "INITR_REDTAB"
+  spi_clk: "22"
+  spi_mosi: "23"
+  spi_miso: "19"
+  pin_reset: "18"
+  pin_cs: "5"
+  pin_dc: "19"
+  display_width: 128
+  display_height: 128
+  #ROTARY ENCODER
+  rotaty_clk: "27"
+  rotaty_a: "17"
+  rotaty_b: "16" 
+  temp_step: "1" # input/2 = step size
+  #SENSORS / ENTITIES
+  #light_entity: light.closet_light
+  hide_sensors_in_ha: "true"
+  
+  media_player: "media_player.kitchen_speaker"
+  climate_entity: "climate.greenhouse_thermostats"
+  climate_entity_2: "climate.bay_5_thermostat"
+  temp_sensor_1: "sensor.bme280_1_temperature"
+  temp_sensor_2: "sensor.average_greenhouse_temperature"
+  #DISPLAY LABEL
+  current_temp_display_label_2: "Currently"
+  media_entity_short_name: "  Kitchen"
+  sensor_1_display_label: "Bay 1"
+  climate_entity_friendly_name: "Thermostat"
+  rotary_short_name: "Select"
+  sensor_2_display_label: "Average"
+  target_temp_display_label: "Target"
+  current_temp_display_label: "Current"
+# DONT NEED TO CHANGE BUT CAN#
+  media_volume_id: "volume"
+  thermostat_target_temp_id: "thermo_target"
+  thermostat_target_temp_id_2: "thermo_target_2"
+  climate_txt_sensor_id: "thermo_txt"
+  climate_txt_sensor_id_2: "thermo_txt_2"
+  climate_entity_id: "thermo_current_temp"
+  climate_entity_id_2: "thermo_current_temp_2"
+  sensor_1_id: "warehouse"
+  sensor_2_id: "greenhouse_avg"
+  thrmostat_current_temp_id: "thermo_current_temp"
+  thrmostat_current_temp_id_2: "thermo_current_temp_2"
+  rotary_id: "knob"
+  rotary_click_id: "click"
+  display_id: "my_lcd"
+##########  
+esphome:
+  name: ${esphome_node_name}
+## NAME YOUR BOARD TYPE
+esp32:
+  board: ${board_model}
+#  framework:
+#    type: ${framework_type}
+## DONT REMOVE
+logger:
+## DONT REMOVE
+api:
+  encryption:
+    key: "${encryption_key}"
+## DONT REMOVE
+ota:
+  password: "${ota_pass}"
+wifi:
+  networks:
+  - ssid: ${wifi_name}
+    password: ${wifi_pass}
+  - ssid: ${wifi_name_2}
+    password: ${wifi_pass_2}
+  ap:
+    ssid: "${esp_name} Hotspot"
+    password: "${ap_pass}"
+## WIFI CONNECTION CHECK${display_id}
+globals: 
+  - id: wifi_connection
+    type: bool
+    restore_value: no
+    initial_value: "false"
+## WIFI CONNECTION CHECK TIMER
+interval: 
+  - interval: ${check_interval}
+    then:
+      - if:
+          condition:
+            wifi.connected:
+          then:
+            - lambda: |-
+                id(wifi_connection) = true;
+          else:
+            - lambda: |-
+                id(wifi_connection) = false;
+## TIME
+time:
+  - platform: homeassistant
+    id: ${time_id}
+## ROTATY CLICK
+binary_sensor:
+  - platform: gpio
+    name: '${esp_name} Click'
+    id: ${rotary_click_id}
+    pin: ${rotaty_clk}
+    on_press: 
+      - display.page.show_next: ${display_id}
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page1
+          then:
+            - sensor.rotary_encoder.set_value:
+               id: ${rotary_id}
+               value: !lambda "return id(${thermostat_target_temp_id}).state * 2;"               
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page2
+          then:
+            - sensor.rotary_encoder.set_value:
+               id: ${rotary_id}
+               value: !lambda "return id(${media_volume_id}).state * 100;"
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page3
+          then:
+            - sensor.rotary_encoder.set_value:
+               id: ${rotary_id}
+               value: !lambda "return id(${thermostat_target_temp_id_2}).state * 2;"
+      - component.update: ${display_id}
+    internal: ${hide_sensors_in_ha}
+##SCREEN ON / OFF Switch
+switch:
+  - platform: template
+    name: "${esp_name} Display"
+    optimistic: true
+    turn_on_action:
+      - lambda: id(my_lcd).fill(COLOR_ON);
+    turn_off_action:
+      - lambda: id(my_lcd).fill(COLOR_OFF);
+## ROTARY ENCODER KNOB and SENSORS
+sensor:
+  - platform: rotary_encoder
+    name: "${esp_name} Rotary Encoder"
+    id: ${rotary_id}
+    pin_a: ${rotaty_a}
+    pin_b: ${rotaty_b}
+    resolution: 1
+    publish_initial_value: true
+    internal: ${hide_sensors_in_ha}
+    filters:
+    - debounce: 0.1s
+    on_value:
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page1
+          then:                      
+            - delay: 0.5s
+            - homeassistant.service: 
+                service: climate.set_temperature
+                data_template:
+                  target_temp_low: !lambda "return id(${rotary_id}).state / 2;"
+                  target_temp_high: !lambda "return id(${rotary_id}).state / 2 + 2;"
+                  entity_id: ${climate_entity} 
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page2
+          then:        
+            - delay: 0.05s
+            - homeassistant.service:
+                service: media_player.volume_set
+                data_template:                 
+                  volume_level:  !lambda "return id(${rotary_id}).state / 100;"
+                  entity_id: ${media_player}
+      - if:
+          condition:
+            display.is_displaying_page:
+              id: ${display_id}
+              page_id: page3
+          then:                      
+            - delay: 0.5s
+            - homeassistant.service: 
+                service: climate.set_temperature
+                data_template:
+                  target_temp_low: !lambda "return id(${rotary_id}).state / 2;"
+                  target_temp_high: !lambda "return id(${rotary_id}).state / 2 + 2;"
+                  entity_id: ${climate_entity_2} 
+#MEDIA PLAYER 
+  - platform: homeassistant
+    id: ${media_volume_id}
+    entity_id: ${media_player}
+    attribute: volume_level
+    internal: true
+# ONLY UNCOMMENT IF HAVING ISSUES WITH VOLUME GETTING OUT OF SYNC, screen is much smoother with this commented out
+#OR IF BEING ABLE TO GO NEGATIVE OR OVER 100 WITH THE KNOB (It doesnt hurt anything, just bothers me)
+#    on_value:
+#    - delay: 0.2s
+#    - if:
+#        condition:
+#           display.is_displaying_page:
+#            id: ${display_id}
+#            page_id: page2
+#        then:
+#          - sensor.rotary_encoder.set_value:
+#             id: ${rotary_id}
+#             value: !lambda "return id(${media_volume_id}).state * 100;"
+## LOCAL TEMPERATURES        
+  - platform: homeassistant
+    entity_id: ${temp_sensor_1}
+    id: ${sensor_1_id} 
+  - platform: homeassistant
+    entity_id: ${temp_sensor_2}
+    id: ${sensor_2_id}
+#climate group or single climate entity page 1
+  - platform: homeassistant
+    id: ${thrmostat_current_temp_id}
+    entity_id: ${climate_entity}
+    attribute: current_temperature
+#climate group or single climate entity page 2
+  - platform: homeassistant
+    id: ${thrmostat_current_temp_id_2}
+    entity_id: ${climate_entity_2}
+    attribute: current_temperature  
+## THERMOSTAT TARGET TEMPERATURE ## SET ENCODER TEMP TARGET VALUE ON PAGE 1 ###
+  - platform: homeassistant
+    id: ${thermostat_target_temp_id}
+    entity_id: ${climate_entity}
+    attribute: target_temp_low
+    on_value:
+    - delay: 0.2s
+    - if:
+        condition:
+          display.is_displaying_page:
+            id: ${display_id}
+            page_id: page1
+        then:
+          - sensor.rotary_encoder.set_value:
+             id: ${rotary_id}
+             value: !lambda "return id(${thermostat_target_temp_id}).state * 2;"
+## THERMOSTAT TARGET TEMPERATURE ## SET ENCODER TEMP TARGET VALUE ON PAGE 3 ###
+  - platform: homeassistant
+    id: ${thermostat_target_temp_id_2}
+    entity_id: ${climate_entity_2}
+    attribute: target_temp_low
+#comment out for smoother display of temperature selection
+    on_value:
+    - delay: 3s
+    - if:
+        condition:
+          display.is_displaying_page:
+            id: ${display_id}
+            page_id: page3
+        then:
+          - sensor.rotary_encoder.set_value:
+             id: ${rotary_id}
+             value: !lambda "return id(${thermostat_target_temp_id_2}).state * 2;"             
+###THERMOSTAT TXT SENSOR FOR ACTION LABEL
+text_sensor:
+#page 1
+  - platform: homeassistant
+    id: ${climate_txt_sensor_id}
+    entity_id: ${climate_entity}
+    attribute: hvac_action
+#page 3
+  - platform: homeassistant
+    id: ${climate_txt_sensor_id_2}
+    entity_id: ${climate_entity_2}
+    attribute: hvac_action
+##FONT FILES
+font:
+  - file: 'fonts/arial.ttf'
+    id: font1
+    size: 18
+  - file: "fonts/mdi.ttf"
+    id: mdi3
+    size: 18
+    glyphs: [
+      "\U000F0036", #apple finder logo
+      "\U000F0035", #apple Logo
+      "\U000F0A21", #windows 98 flag
+      "\U000F05AA", #wifi off
+      "\U000F05A9", #wifi
+      ]
+  - file: 'fonts/arial.ttf'
+    id: font0
+    size: 11
+  - file: 'fonts/BebasNeue-Regular.ttf'
+    id: font2
+    size: 30
+  - file: 'fonts/BebasNeue-Regular.ttf'
+    id: font4
+    size: 55
+  - file: 'fonts/arial.ttf'
+    id: font3
+    size: 14
+##DISLAY COLORS red/blue inverted on some lcd's
+color:
+  - id: red
+    red: 100%
+    green: 0%
+    blue: 0%
+    white: 0%
+  - id: blue
+    red: 0%
+    green: 0%
+    blue: 100%
+    white: 0%
+  - id: blue_green
+    red: 80%
+    green: 100%
+    blue: 0%
+    white: 0%
+  - id: green
+    red: 0%
+    green: 100%
+    blue: 0%
+    white: 0%
+  - id: violet
+    red: 50%
+    green: 0%
+    blue: 50%
+    white: 5%
+## 1.44 tft lcd color 128*128
+spi:
+  clk_pin: ${spi_clk}
+  mosi_pin: ${spi_mosi}
+  miso_pin: ${spi_miso}
+display:
+  - platform: ${display_platform}
+    model: "${display_model}"
+    id: ${display_id}
+    reset_pin: ${pin_reset}
+    cs_pin: ${pin_cs}
+    dc_pin: ${pin_dc}
+    rotation: 0
+    device_width: ${screen_width}
+    device_height: ${screen_height}
+    col_start: 0
+    row_start: 0
+    eight_bit_color: true
+    update_interval: 0.5s
+    pages:
+      - id: page1
+        lambda: |-
+          it.line(0, 15, 128, 15);
+          it.line(84, 15, 84, 0);
+          it.line(64, 15, 64, 95);
+          it.line(0, 95, 128, 95);
+          
+          it.print(3, 95, id(font0), id(green), "Greenhouse Heaters (4)");
+          it.printf(3, 106, id(font0), id(green), "Target Low: %.1f°", id(${thermostat_target_temp_id}).state);
+          it.printf(3, 116, id(font0), id(green), "Target High: %.1f°", id(${thermostat_target_temp_id}).state + 2);
+          
+          it.rectangle(0, 0, 128, 55);
+          it.rectangle(0, 54, 128, 74);
+          
+          it.strftime(86, 0, id(font3), id(blue_green), "%H:%M", id(${time_id}).now());
+          
+          it.printf(2, 2, id(font0), id(red), "State: %s", id(${climate_txt_sensor_id}).state.c_str());
+          
+
+          if (id(${thrmostat_current_temp_id}).has_state()) {
+          it.printf(2, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thrmostat_current_temp_id}).state);
+          } else {
+          it.print(8, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          
+          it.printf(2, 40, id(font0), id(blue_green), "${current_temp_display_label}");
+
+
+          if (id(${thermostat_target_temp_id}).has_state()) {
+          it.printf(67, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thermostat_target_temp_id}).state + 2);
+          } else {
+          it.print(75, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          
+          it.printf(73, 40, id(font0), id(blue_green), "${target_temp_display_label}");
+
+          
+          it.printf(67, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${rotary_id}).state / 2 + 2);
+          it.print(81, 80, id(font0), id(blue_green), "${rotary_short_name}");
+
+
+          it.printf(109, 111, id(mdi3), id(green), "%s", id(wifi_connection) ? "\U000F05A9" : "\U000F05AA");
+          
+          it.line(109, 109, 109, 128, id(green));
+          it.line(109, 109, 128, 109, id(green));
+
+          it.printf(4, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${sensor_2_id}).state);
+          it.print(5, 80, id(font0), id(blue_green), "${sensor_2_display_label}");
+      - id: page2
+        lambda: |-
+          it.rectangle(0, 0, 128, 128, id(red));
+          it.filled_rectangle(14, 3, id(${rotary_id}).state, 18, id(red));
+          it.rectangle(13, 2, 102, 20, id(green));
+
+          it.print(30, 20, id(font3), id(blue_green), "${media_entity_short_name}");
+          it.print(37, 34, id(font3), id(blue_green), "Volume");
+          it.printf(38, 45, id(font4), id(green), "%.0f", id(${rotary_id}).state);
+
+#          it.print(4, 105, id(font0), id(blue_green), "Next: page label");
+      - id: page3
+        lambda: |-
+          it.line(0, 15, 128, 15);
+          it.line(84, 15, 84, 0);
+          it.line(64, 15, 64, 95);
+          it.line(0, 95, 128, 95);
+          
+          it.print(3, 95, id(font0), id(green), "Warehouse Heater");
+          it.printf(3, 106, id(font0), id(green), "Target Low: %.1f°", id(${thermostat_target_temp_id_2}).state);
+          it.printf(3, 116, id(font0), id(green), "Target High: %.1f°", id(${thermostat_target_temp_id_2}).state + 2);
+          
+          it.rectangle(0, 0, 128, 55);
+          it.rectangle(0, 54, 128, 74);
+          
+          it.strftime(86, 0, id(font3), id(blue_green), "%H:%M", id(${time_id}).now());
+          
+          it.printf(2, 2, id(font0), id(red), "State: %s", id(${climate_txt_sensor_id_2}).state.c_str());
+          
+
+          if (id(${thrmostat_current_temp_id_2}).has_state()) {
+          it.printf(2, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thrmostat_current_temp_id_2}).state);
+          } else {
+          it.print(8, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          
+          it.printf(2, 40, id(font0), id(blue_green), "${current_temp_display_label_2}");
+
+
+          if (id(${thermostat_target_temp_id_2}).has_state()) {
+          it.printf(67, 40, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${thermostat_target_temp_id_2}).state + 2);
+          } else {
+          it.print(75, 25, id(mdi3), id(red), "\U000F05AA");
+          }
+          
+          it.printf(73, 40, id(font0), id(blue_green), "${target_temp_display_label}");
+
+          
+          it.printf(67, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${rotary_id}).state / 2 + 2);
+          it.print(81, 80, id(font0), id(blue_green), "${rotary_short_name}");
+
+
+          it.printf(109, 111, id(mdi3), id(green), "%s", id(wifi_connection) ? "\U000F05A9" : "\U000F05AA");
+         
+          it.line(109, 109, 109, 128, id(green));
+          it.line(109, 109, 128, 109, id(green));
+
+          it.printf(4, 80, id(font2), id(green), TextAlign::BASELINE_LEFT, "%.1f°", id(${sensor_1_id}).state);
+          it.print(5, 80, id(font0), id(blue_green), "${sensor_1_display_label}");
+
